@@ -141,7 +141,7 @@ def apply_schema_change() -> dict:
 
 
 def bootstrap_demo() -> dict:
-    from app.catalog import refresh_datasource
+    from app.catalog import bind_job, refresh_datasource
 
     meta = ensure_demo_tables()
     param = {**meta, "database": "demo"}
@@ -210,6 +210,7 @@ def bootstrap_demo() -> dict:
                 session.add(job)
                 session.flush()
             job_ids[name] = job.id
+            bind_job(session, job)
         sender = session.query(SlaSender).filter(SlaSender.name == "demo-feishu-mock").one_or_none()
         webhook = f"http://127.0.0.1:{settings.port}/api/v1/sla/mock/receive"
         if sender is None:

@@ -4,7 +4,7 @@
 
 ## 结果
 
-**13 passed**，1 条 Alembic `path_separator` 弃用警告（已在 `alembic.ini` 补上 `path_separator = os`，警告来自跑测试时的旧进程缓存或首次读取，复跑迁移不再因此失败）。
+2026-10-30 验收复跑：**19 passed**，0 failed。命令：`cd backend && python3 -m pytest -q`。前端 `npx tsc --noEmit` 通过。
 
 | 测试 | 结果 | 内容 |
 | --- | --- | --- |
@@ -14,8 +14,23 @@
 | `tests/test_schema_parity.py` | 通过 | `scripts/sql/datavines-mysql.sql` 中每张 `dv_*` 表的列都在 SQLAlchemy 模型里 |
 | `tests/test_spark_stub.py` | 通过 | `SparkEngine.execute` 抛出未实现，并提示改用 local |
 | `tests/test_flow.py` | 通过 | 连接本机 MySQL：引导 Demo，跑空值作业（实际值 1、state=2、有错误行、飞书 mock 成功）和行数作业（实际值 8、state=1、执行状态 7） |
+| `tests/test_connectors_alerts_cron.py` | 通过 | Doris 默认端口 9030 且 URL 为 `mysql+pymysql`；PostgreSQL/Hive 拒绝；飞书 mock 与 HTTP 成功/业务码失败；Cron 5/6 位与到点窗口 |
+| `tests/test_catalog_profile_doris.py` | 通过 | 用 Doris 类型连上本机 MySQL 协议并列出 `demo`；加列与改类型写入 Schema 变更；探查 email 空值 1、无值 2、行数 8；作业挂到列实体；`insert into orders_mirror select * from orders` 写出血缘 |
 
-元数据库不可达时 `test_flow.py` 会跳过，其余测试不依赖 MySQL。
+元数据库不可达时 `test_flow.py` 与 `test_catalog_profile_doris.py` 里的集成用例会跳过。Doris 用例没有单独的 Doris 集群，用本机 MySQL 协议服务验证连接器路径。
+
+## 验收中发现并已修
+
+- Demo 引导创建作业后没有调用目录关联，列实体上看不到质量作业。现已在引导结束时 `bind_job`。
+- `POST /job/execution/submit/data-reconciliation` 不会把作业类型写成比对（2），因为路径没有放进请求体。已拆成两个处理函数。
+- 血缘解析只认全名，文档里的 `insert into orders_mirror select * from orders` 得不到边。现已在全库唯一时按表名匹配。
+- 命令工人在跑作业时一直占着领取命令的数据库会话。现已提交并释放锁后再执行。
+- 作业表单的「写回错误数据」开关没有提交。现已写入 `isErrorDataOutputToDatasource`。已有作业可单独保存 Cron。目录和概览页可以保存定时任务。详情增加血缘页。执行日志在成功、失败或终止后停止轮询。
+- Compose：后端健康检查增加 40 秒启动宽限，前端等后端健康后再启动，三个服务 `restart: unless-stopped`。
+
+## 验收走查（修复后的进程）
+
+`POST /job/execute/1`（邮箱空值）经命令队列执行，实例 11：状态 7，实际值 1，state=2，错误样本 1 行，飞书 mock `success=1`。另建 `engineType=spark` 的作业，执行状态 6，日志为「Spark 执行引擎仅保留接口，未实现」。
 
 ## 手工冒烟（同日，同一套库）
 

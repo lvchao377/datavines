@@ -16,6 +16,7 @@
 | `/main/detail/:id/catalog` | 数据目录 | 库表列、预览、提交同步、看通用任务 |
 | `/main/detail/:id/profile` | 数据概览 | 提交探查、行数柱状图、列指标和直方图 |
 | `/main/detail/:id/schema` | Schema 变更 | 变更表、Demo 加列 |
+| `/main/detail/:id/lineage` | 血缘 | 一跳上下游、手工加边、从 SQL 解析。不是完整血缘图画布 |
 | `/main/warning` | 告警管理 | SLA、飞书发送器、发送记录、测试 |
 | `/main/errorDataManage` | 错误数据存储 | MySQL 存储的测试与保存 |
 | `/main/label` | 标签管理 | 分类和标签 |

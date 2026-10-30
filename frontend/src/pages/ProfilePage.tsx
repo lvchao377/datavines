@@ -1,4 +1,4 @@
-import { Button, Card, Col, Row, Select, Space, Statistic, message } from "antd";
+import { Button, Card, Col, Input, Row, Select, Space, Statistic, message } from "antd";
 import ReactECharts from "echarts-for-react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -49,6 +49,24 @@ export default function ProfilePage() {
         <Button type="primary" onClick={run}>运行探查</Button>
         <Button onClick={() => { const row = tables.find((item) => item.displayName === table); if (row) loadProfile(row); }}>查看结果</Button>
       </Space>
+      <Card size="small" title="定时探查" style={{ marginBottom: 12 }}>
+        <Space>
+          <Input id="profile-cron" defaultValue="30 2 * * *" style={{ width: 180 }} />
+          <Button onClick={async () => {
+            const input = document.getElementById("profile-cron") as HTMLInputElement | null;
+            if (!database || !table) { message.warning("先选择库和表"); return; }
+            await http.post("/common-task/schedule", {
+              taskType: "DATA_PROFILE",
+              type: "cycle",
+              datasourceId: Number(id),
+              cronExpression: input?.value || "30 2 * * *",
+              status: 1,
+              param: { database, table },
+            });
+            message.success("探查调度已保存");
+          }}>保存 Cron</Button>
+        </Space>
+      </Card>
       {entity && (
         <Card title={`${entity.fullyQualifiedName} 行数趋势`}>
           {trend.length === 0 ? "还没有探查记录" : (

@@ -1,4 +1,4 @@
-import { Card, Col, Empty, Row, Statistic, Table, Tag } from "antd";
+import { Card, Col, Empty, Row, Statistic, Table, Tag, message } from "antd";
 import ReactECharts from "echarts-for-react";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -55,6 +55,15 @@ export default function DashboardPage() {
             { title: "标题", dataIndex: "title" },
             { title: "状态", dataIndex: "status", render: (value: string) => <Tag color={value === "bad" ? "red" : "green"}>{value}</Tag> },
             { title: "时间", dataIndex: "createTime" },
+            {
+              title: "操作",
+              render: (_, row) => row.status === "bad" ? <a onClick={async () => {
+                await http.post("/catalog/issue/update-status", { id: row.id, status: "good" });
+                message.success("已标为已处理");
+                const page = await http.get("/catalog/page/entity/issue", { params: { datasourceId: id, pageNumber: 1, pageSize: 8 } });
+                setIssues(page.records || []);
+              }}>标为已处理</a> : null,
+            },
           ]}
         />
       </Card>

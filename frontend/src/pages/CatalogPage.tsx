@@ -1,4 +1,4 @@
-import { Button, Card, Descriptions, Drawer, Select, Space, Table, Tag, message } from "antd";
+import { Button, Card, Descriptions, Drawer, Form, Input, Select, Space, Table, Tag, message } from "antd";
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import http from "../api";
@@ -97,6 +97,24 @@ export default function CatalogPage() {
         )}
         {table && <Descriptions style={{ marginTop: 12 }}><Descriptions.Item label="UUID">{table.uuid}</Descriptions.Item></Descriptions>}
       </Drawer>
+      <Card title="定时同步" size="small" style={{ marginTop: 16 }}>
+        <Form layout="inline" onFinish={async (values) => {
+          await http.post("/common-task/schedule", {
+            taskType: "CATALOG_METADATA",
+            type: "cycle",
+            datasourceId: Number(id),
+            cronExpression: values.cronExpression,
+            status: 1,
+            param: { database },
+          });
+          message.success("目录同步调度已保存");
+        }}>
+          <Form.Item name="cronExpression" initialValue="0 2 * * *" rules={[{ required: true }]}>
+            <Input style={{ width: 220 }} placeholder="0 2 * * *" />
+          </Form.Item>
+          <Button htmlType="submit">保存 Cron</Button>
+        </Form>
+      </Card>
     </div>
   );
 }

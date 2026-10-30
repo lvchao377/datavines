@@ -20,7 +20,7 @@
 - 血缘边的 `type` 为 `downstream`：`entity1` 是上游，`entity2` 是下游。不写反向的 upstream 行，查询时把两端都算进图。
 - 只同步 `BASE TABLE`，跳过系统库。
 - 列属性 JSON 含 `dataType`、`columnType`、`nullable`、`comment`、`position`、`columnKey`。概览用 `dataType` 选指标。
-- 解析 SQL 时，`INSERT INTO 目标 SELECT ... FROM 源` 会把源指向目标。没有 INSERT 时，按 FROM/JOIN 出现顺序把前一张表指到后一张。匹配不到目录实体的表名会被丢掉，所以要先同步。
+- 解析 SQL 时，`INSERT INTO 目标 SELECT ... FROM 源` 会把源指向目标。没有 INSERT 时，按 FROM/JOIN 出现顺序把前一张表指到后一张。表名先按全名匹配，匹配不到且全库只有一张同名表时，按表名匹配，因此 `orders` 可以对应 `demo.orders`。对不上的名字会丢掉，所以要先同步。
 - 通用任务 `CATALOG_METADATA` 失败时，错误文本写进任务 `parameter`，状态为 3。成功为 2，运行为 1，等待为 0。
 
 ## 数据流转过程
@@ -38,7 +38,8 @@
 | 数据目录 | `/main/detail/:id/catalog` | `GET /catalog/databases/{id}`、`GET /catalog/list/table/{uuid}`、`GET /catalog/list/column/{uuid}`、`POST /catalog/refresh`、`GET /common-task/page`、预览走数据源接口 |
 | Schema 变更 | `/main/detail/:id/schema` | `GET /catalog/page/schema-change`、`POST /demo/schema-change` |
 | 标签 | `/main/label` | `POST /catalog/tag/category`、`GET /catalog/tag/category/list/{workspaceId}`、`POST /catalog/tag`、`GET /catalog/tag/list-in-category/{uuid}`、`POST /catalog/tag/entity-tag` |
-| 血缘 | 当前 UI 未单独做图，接口可用 | `GET /catalog/lineage/getByUUID/{uuid}`、`POST /catalog/lineage/add`、`POST /catalog/lineage/addByParseSql`、`DELETE /catalog/lineage/{from}/{to}` |
+| 血缘 | `/main/detail/:id/lineage` | `GET /catalog/lineage/getByUUID/{uuid}`、`POST /catalog/lineage/add`、`POST /catalog/lineage/addByParseSql`、`DELETE /catalog/lineage/{from}/{to}` |
+| 定时同步 | 目录页底部 Cron | `POST /common-task/schedule`，`taskType=CATALOG_METADATA` |
 
 实体详情：`GET /catalog/detail/{uuid}`，附带标签。某实体相关变更：`GET /catalog/list/schema-change/{uuid}`。
 

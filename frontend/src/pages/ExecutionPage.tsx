@@ -26,13 +26,21 @@ export default function ExecutionPage({ mode }: { mode: "list" | "log" }) {
     setResults(resultBody || []);
     setErrors(errorBody.records || []);
     setStatus(statusBody.status);
+    return statusBody.status as number;
   };
 
   useEffect(() => { loadList(); }, [id]);
   useEffect(() => {
     if (!current) return;
-    loadDetail(current);
-    const timer = window.setInterval(() => loadDetail(current), 2000);
+    let stop = false;
+    const tick = async () => {
+      const next = await loadDetail(current);
+      if (next === 6 || next === 7 || next === 9) stop = true;
+    };
+    tick();
+    const timer = window.setInterval(() => {
+      if (!stop) tick();
+    }, 2000);
     return () => window.clearInterval(timer);
   }, [current]);
 

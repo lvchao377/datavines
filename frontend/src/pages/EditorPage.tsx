@@ -1,4 +1,4 @@
-import { Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, message } from "antd";
+import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space, Switch, Table, Tag, message } from "antd";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import http from "../api";
@@ -24,7 +24,10 @@ export default function EditorPage() {
   const [columns, setColumns] = useState<{ name: string }[]>([]);
   const [tables2, setTables2] = useState<{ name: string }[]>([]);
   const [form] = Form.useForm();
+  const [scheduleForm] = Form.useForm();
+  const [scheduleJob, setScheduleJob] = useState<number | null>(null);
   const checkType = Form.useWatch("checkType", form);
+  const engineType = Form.useWatch("engineType", form);
   const database = Form.useWatch("database", form);
   const table = Form.useWatch("table", form);
 
@@ -122,6 +125,8 @@ export default function EditorPage() {
       preSql: values.preSql,
       postSql: values.postSql,
       cronExpression: values.cronExpression,
+      isErrorDataOutputToDatasource: Boolean(values.errorOutput),
+      errorDataOutputToDatasourceDatabase: values.database,
     });
     message.success("作业已保存");
     setOpen(false);
@@ -156,6 +161,14 @@ export default function EditorPage() {
             render: (_, row) => (
               <Space>
                 <a onClick={() => run(row.id)}>运行</a>
+                <a onClick={async () => {
+                  const current = await http.get(`/job/schedule/${row.id}`);
+                  scheduleForm.setFieldsValue({
+                    cronExpression: current?.cronExpression || "0 2 * * *",
+                    status: current ? current.status === 1 : true,
+                  });
+                  setScheduleJob(row.id);
+                }}>调度</a>
                 <a onClick={async () => { await http.delete(`/job/${row.id}`); load(); }}>删除</a>
               </Space>
             ),
@@ -172,6 +185,7 @@ export default function EditorPage() {
           <Form.Item name="engineType" label="执行引擎">
             <Select options={[{ value: "local", label: "local（已实现）" }, { value: "spark", label: "spark（仅接口，运行会失败）" }]} />
           </Form.Item>
+          {engineType === "spark" && <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="Spark 只保留接口。保存后一旦运行，执行会失败，日志会要求改回 local。不会提交 Spark 或 Livy。" />}
           <Space style={{ display: "flex" }} align="start">
             <Form.Item name="database" label="数据库" rules={[{ required: checkType !== "custom" }]}><Select style={{ width: 180 }} options={databases.map((item) => ({ value: item, label: item }))} /></Form.Item>
             <Form.Item name="table" label="表" rules={[{ required: checkType !== "custom" }]}><Select style={{ width: 200 }} options={tables.map((item) => ({ value: item.name, label: item.name }))} /></Form.Item>
@@ -236,7 +250,23 @@ export default function EditorPage() {
           <Form.Item name="preSql" label="前置 SQL"><Input.TextArea rows={2} /></Form.Item>
           <Form.Item name="postSql" label="后置 SQL"><Input.TextArea rows={2} /></Form.Item>
           <Form.Item name="cronExpression" label="Cron（可空，5 位或 Quartz 6 位）"><Input placeholder="0 0 * * *" /></Form.Item>
-          <Form.Item name="errorOutput" label="失败时输出错误数据" valuePropName="checked"><Switch defaultChecked /></Form.Item>
+          <Form.Item name="errorOutput" label="失败时把错误样本写回被检库" valuePropName="checked"><Switch /></Form.Item>
+        </Form>
+      </Modal>
+      <Modal title="作业调度" open={scheduleJob != null} onCancel={() => setScheduleJob(null)} onOk={async () => {
+        const values = await scheduleForm.validateFields();
+        await http.post("/job/schedule/createOrUpdate", {
+          jobId: scheduleJob,
+          type: "cycle",
+          cronExpression: values.cronExpression,
+          status: values.status ? 1 : 0,
+        });
+        message.success("调度已保存");
+        setScheduleJob(null);
+      }}>
+        <Form form={scheduleForm} layout="vertical">
+          <Form.Item name="cronExpression" label="Cron（5 位，或 Quartz 6 位秒在前）" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="status" label="启用" valuePropName="checked"><Switch /></Form.Item>
         </Form>
       </Modal>
     </div>

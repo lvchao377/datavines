@@ -8,6 +8,7 @@ import ExecutionPage from "./pages/ExecutionPage";
 import CatalogPage from "./pages/CatalogPage";
 import ProfilePage from "./pages/ProfilePage";
 import SchemaPage from "./pages/SchemaPage";
+import LineagePage from "./pages/LineagePage";
 import WarningPage from "./pages/WarningPage";
 import StoragePage from "./pages/StoragePage";
 import LabelPage from "./pages/LabelPage";
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="catalog" element={<CatalogPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="schema" element={<SchemaPage />} />
+          <Route path="lineage" element={<LineagePage />} />
         </Route>
         <Route path="warning" element={<WarningPage />} />
         <Route path="errorDataManage" element={<StoragePage />} />

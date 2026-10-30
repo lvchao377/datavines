@@ -10,10 +10,12 @@ services:
     volumes:
       - dv-mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pdatavines"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pdatavines", "--silent"]
       interval: 5s
       timeout: 5s
       retries: 30
+      start_period: 20s
+    restart: unless-stopped
 
   backend:
     build:
@@ -33,6 +35,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 30
+      start_period: 40s
+    restart: unless-stopped
 
   frontend:
     build:
@@ -41,7 +45,9 @@ services:
     ports:
       - "5680:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   dv-mysql:

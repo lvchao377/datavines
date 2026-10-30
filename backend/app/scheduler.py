@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import socket
 import threading
@@ -170,40 +171,62 @@ def _run_common(task_id: int) -> None:
             session.rollback()
             task = session.get(CommonTask, task_id)
             task.status = TASK_FAILURE
-            task.parameter = str(exc)[:2000]
+            previous = parse_json(task.parameter, {})
+            if not isinstance(previous, dict):
+                previous = {"parameter": task.parameter}
+            previous["error"] = str(exc)[:1500]
+            task.parameter = json.dumps(previous, ensure_ascii=False)
         task.end_time = datetime.now()
         session.commit()
 
 
-def _drain_once() -> bool:
-    did = False
+def _claim_work() -> tuple[int | None, int | None, int | None]:
+    """Return (execution_id, command_type, common_task_id). The row lock is released before execution."""
     with SessionLocal() as session:
-        command = session.query(Command).order_by(Command.priority.asc(), Command.id.asc()).with_for_update(skip_locked=True).first()
+        command = (
+            session.query(Command)
+            .order_by(Command.priority.asc(), Command.id.asc())
+            .with_for_update(skip_locked=True)
+            .first()
+        )
         if command is not None:
             execution_id = command.job_execution_id
             kind = command.type
             session.delete(command)
             session.commit()
-            did = True
-            if kind == CMD_STOP:
-                request_cancel(execution_id)
-                with SessionLocal() as inner:
-                    execution = inner.get(JobExecution, execution_id)
-                    if execution and execution.status in (EXEC_RUNNING, 0):
-                        execution.status = 9
-                        execution.end_time = datetime.now()
-                        inner.commit()
-            else:
-                run_execution(execution_id)
-            return did
-        common = session.query(CommonTaskCommand).order_by(CommonTaskCommand.id.asc()).with_for_update(skip_locked=True).first()
+            return execution_id, kind, None
+        common = (
+            session.query(CommonTaskCommand)
+            .order_by(CommonTaskCommand.id.asc())
+            .with_for_update(skip_locked=True)
+            .first()
+        )
         if common is not None:
             task_id = common.task_id
             session.delete(common)
             session.commit()
-            did = True
-            _run_common(task_id)
-    return did
+            return None, None, task_id
+    return None, None, None
+
+
+def _drain_once() -> bool:
+    execution_id, kind, task_id = _claim_work()
+    if execution_id is not None:
+        if kind == CMD_STOP:
+            request_cancel(execution_id)
+            with SessionLocal() as inner:
+                execution = inner.get(JobExecution, execution_id)
+                if execution and execution.status in (EXEC_RUNNING, 0):
+                    execution.status = 9
+                    execution.end_time = datetime.now()
+                    inner.commit()
+        else:
+            run_execution(execution_id)
+        return True
+    if task_id is not None:
+        _run_common(task_id)
+        return True
+    return False
 
 
 def _recover() -> None:

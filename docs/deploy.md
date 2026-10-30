@@ -24,7 +24,7 @@ docker compose up --build
 - `AUTO_BOOTSTRAP_DEMO=true`：启动后创建 `demo` 库、`orders` / `orders_mirror`、数据源 `demo-mysql`、作业 `demo_email_null_check` 与 `demo_orders_row_count`、飞书 mock SLA。
 - `ENABLE_WORKER=true`：启动命令工人和 Cron 扫描。
 
-MySQL 健康之后后端才启动。后端会重试最多约一分钟执行 Alembic。前端 Nginx 把 `/api/` 反代到 `backend:5600`，所以页面和接口同源，没有跨域问题。
+MySQL 健康之后后端才启动。后端健康检查有 40 秒启动宽限，并会重试连接以执行 Alembic。三个服务都是 `restart: unless-stopped`。前端要等后端健康后才启动，Nginx 把 `/api/` 反代到 `backend:5600`。数据卷如果是用别的 root 密码初始化的，健康检查会一直失败，需要 `docker compose down -v` 后重建。
 
 停掉并保留数据卷：`docker compose down`。连数据一起删：`docker compose down -v`。
 

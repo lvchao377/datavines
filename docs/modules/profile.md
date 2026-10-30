@@ -39,6 +39,7 @@
 | 数据概览 | `/main/detail/:id/profile` | `POST /catalog/profile/execute`、`GET /catalog/profile/table/records?uuid=&metric=table_row_count`、`GET /catalog/profile/column/{uuid}` |
 | 表实体上的全部指标 | 调试 | `GET /catalog/profile/table/{uuid}` |
 | 任务是否跑完 | 目录页底部或 `common-task` | `GET /common-task/page?datasourceId=` |
+| 定时探查 | 概览页「定时探查」 | `POST /common-task/schedule`，`taskType=DATA_PROFILE`，`param` 含 `database` 与 `table` |
 
 ## 使用示例
 

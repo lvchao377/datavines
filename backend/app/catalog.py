@@ -126,138 +126,6 @@ def _change(session, parent_uuid, entity_uuid, change_type, database, table, col
     )
 
 
-def refresh_datasource(session: Session, datasource_id: int, database: str | None = None) -> dict:
-    ds = session.get(DataSource, datasource_id)
-    if ds is None:
-        raise ValueError("数据源不存在")
-    param = validate_param(_loads(ds.param), ds.type)
-    engine = create_source_engine(param)
-    added = deleted = changed = 0
-    try:
-        with engine.connect() as conn:
-            databases = [database] if database else list_databases(conn)
-            known_dbs = {
-                row.fully_qualified_name: row
-                for row in session.query(CatalogEntityInstance)
-                .filter(CatalogEntityInstance.datasource_id == datasource_id, CatalogEntityInstance.type == "database", CatalogEntityInstance.status == "active")
-                .all()
-            }
-            seen_dbs = set()
-            for db_name in databases:
-                if db_name in SYSTEM_DBS:
-                    continue
-                seen_dbs.add(db_name)
-                db_entity, created = _upsert(session, datasource_id, "database", db_name, db_name, {"database": db_name})
-                if created:
-                    added += 1
-                    _change(session, db_entity.uuid, db_entity.uuid, "DATABASE_ADDED", db_name, None, None, None, db_name)
-                tables = list_tables(conn, db_name)
-                known_tables = {
-                    row.fully_qualified_name: row
-                    for row in session.query(CatalogEntityInstance)
-                    .filter(
-                        CatalogEntityInstance.datasource_id == datasource_id,
-                        CatalogEntityInstance.type == "table",
-                        CatalogEntityInstance.status == "active",
-                        CatalogEntityInstance.fully_qualified_name.like(f"{db_name}.%"),
-                    )
-                    .all()
-                    if row.fully_qualified_name.count(".") == 1
-                }
-                seen_tables = set()
-                for table in tables:
-                    fqn = f"{db_name}.{table['name']}"
-                    seen_tables.add(fqn)
-                    table_entity, t_created = _upsert(
-                        session,
-                        datasource_id,
-                        "table",
-                        fqn,
-                        table["name"],
-                        {"database": db_name, "table": table["name"], "rows": table["rows"], "comment": table["comment"]},
-                        table["comment"],
-                    )
-                    _ensure_child(session, db_entity.uuid, table_entity.uuid)
-                    if t_created:
-                        added += 1
-                        _change(session, db_entity.uuid, table_entity.uuid, "TABLE_ADDED", db_name, table["name"], None, None, table["name"])
-                    cols = list_columns(conn, db_name, table["name"])
-                    known_cols = {
-                        row.fully_qualified_name: row
-                        for row in session.query(CatalogEntityInstance)
-                        .filter(
-                            CatalogEntityInstance.datasource_id == datasource_id,
-                            CatalogEntityInstance.type == "column",
-                            CatalogEntityInstance.status == "active",
-                            CatalogEntityInstance.fully_qualified_name.like(f"{fqn}.%"),
-                        )
-                        .all()
-                    }
-                    seen_cols = set()
-                    for col in cols:
-                        cfqn = f"{fqn}.{col['name']}"
-                        seen_cols.add(cfqn)
-                        props = {
-                            "database": db_name,
-                            "table": table["name"],
-                            "column": col["name"],
-                            "dataType": col["dataType"],
-                            "columnType": col["columnType"],
-                            "nullable": col["nullable"],
-                            "comment": col["comment"],
-                            "position": col["position"],
-                            "columnKey": col["columnKey"],
-                        }
-                        col_entity, c_created = _upsert(session, datasource_id, "column", cfqn, col["name"], props, col["comment"])
-                        _ensure_child(session, table_entity.uuid, col_entity.uuid)
-                        if c_created:
-                            added += 1
-                            _change(session, table_entity.uuid, col_entity.uuid, "COLUMN_ADDED", db_name, table["name"], col["name"], None, col["columnType"])
-                        else:
-                            before = _loads(known_cols.get(cfqn).properties if known_cols.get(cfqn) else col_entity.properties)
-                            # known_cols row was just updated; compare against previous by re-reading is hard.
-                            # Use the properties captured before upsert: we already overwrote them.
-                            # Re-fetch is too late. Capture old before upsert.
-                        # type change handled below using snapshot taken before upsert
-                    # second pass for type changes needs old snapshot. Rebuild from known_cols original properties.
-                    for cfqn, old in known_cols.items():
-                        if cfqn not in seen_cols:
-                            _mark_deleted(session, old)
-                            deleted += 1
-                            col_name = old.display_name
-                            _change(session, table_entity.uuid, old.uuid, "COLUMN_DELETED", db_name, table["name"], col_name, _loads(old.properties).get("columnType"), None)
-                        else:
-                            old_props = _loads(old.properties)
-                            # properties were overwritten in upsert; old_props is the NEW value if we updated the same object.
-                            # Fix: snapshot before mutation. See _snapshot approach below.
-                    # The loop above is wrong for type change because upsert mutates the same instance.
-                    # Type-change detection is done in _sync_columns.
-                for fqn, old in list(known_tables.items()):
-                    if fqn not in seen_tables:
-                        _mark_deleted(session, old)
-                        deleted += 1
-                        _change(session, db_entity.uuid, old.uuid, "TABLE_DELETED", db_name, old.display_name, None, old.display_name, None)
-            if database is None:
-                for fqn, old in known_dbs.items():
-                    if fqn not in seen_dbs:
-                        _mark_deleted(session, old)
-                        deleted += 1
-                        _change(session, old.uuid, old.uuid, "DATABASE_DELETED", fqn, None, None, fqn, None)
-        session.commit()
-    finally:
-        engine.dispose()
-    # Type-change detection is performed inside _sync_table; the counters above include adds/deletes.
-    # Run a dedicated column diff that compares stored properties only when the snapshot was preserved.
-    changed = _fixup_column_types(session, datasource_id)
-    session.commit()
-    return {"added": added, "deleted": deleted, "changed": changed}
-
-
-def _fixup_column_types(session: Session, datasource_id: int) -> int:
-    """No-op placeholder kept for return shape. Real diffs happen in refresh_table."""
-    return 0
-
-
 def refresh_datasource_safe(session: Session, datasource_id: int, database: str | None = None) -> dict:
     """Sync metadata and record column type changes using snapshots taken before update."""
     ds = session.get(DataSource, datasource_id)
@@ -489,26 +357,38 @@ def parse_lineage_sql(session: Session, datasource_id: int, sql: str) -> int:
     for name in tables:
         if name not in ordered:
             ordered.append(name)
+    catalog_tables = (
+        session.query(CatalogEntityInstance)
+        .filter(
+            CatalogEntityInstance.datasource_id == datasource_id,
+            CatalogEntityInstance.status == "active",
+            CatalogEntityInstance.type == "table",
+        )
+        .all()
+    )
+
+    def resolve(name: str):
+        exact = [row for row in catalog_tables if row.fully_qualified_name == name]
+        if len(exact) == 1:
+            return exact[0]
+        loose = [
+            row for row in catalog_tables
+            if row.display_name == name or row.fully_qualified_name.endswith("." + name)
+        ]
+        return loose[0] if len(loose) == 1 else None
+
     entities = []
     for name in ordered:
-        row = (
-            session.query(CatalogEntityInstance)
-            .filter(
-                CatalogEntityInstance.datasource_id == datasource_id,
-                CatalogEntityInstance.status == "active",
-                CatalogEntityInstance.fully_qualified_name == name,
-            )
-            .one_or_none()
-        )
-        if row:
+        row = resolve(name)
+        if row and row not in entities:
             entities.append(row)
     created = 0
     insert = re.search(r"insert\s+into\s+`?([A-Za-z_][A-Za-z0-9_]*)`?(?:\.`?([A-Za-z_][A-Za-z0-9_]*)`?)?", sql or "", re.I)
-    if insert and len(entities) >= 1:
+    if insert:
         target_name = f"{insert.group(1)}.{insert.group(2)}" if insert.group(2) else insert.group(1)
-        target = next((e for e in entities if e.fully_qualified_name == target_name or e.display_name == target_name), None)
-        sources = [e for e in entities if e is not target]
-        if target:
+        target = resolve(target_name)
+        sources = [entity for entity in entities if target is None or entity.uuid != target.uuid]
+        if target and sources:
             for src in sources:
                 add_lineage(session, src.uuid, target.uuid, "sql", sql)
                 created += 1

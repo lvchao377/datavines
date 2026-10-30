@@ -709,16 +709,24 @@ def trend_bar(body: dict, db: Session = Depends(get_db)):
     return ok([bucket[key] for key in sorted(bucket)])
 
 
-@router.post("/job/execution/submit/data-quality")
-@router.post("/job/execution/submit/data-reconciliation")
-def submit_inline(body: dict, db: Session = Depends(get_db)):
-    """Create a job from the same payload and enqueue it. Used by the reconciliation/quality shortcuts."""
-    if "type" not in body:
-        body["type"] = 2 if "reconciliation" in body.get("_path", "") else body.get("type", 0)
+def _submit_inline(body: dict, db: Session, job_type: int):
+    body = dict(body)
+    body["type"] = job_type
     row = _save_job(body, None, db)
     db.flush()
+    bind_job(db, row)
     execution_id = enqueue_job(db, row.id)
     return ok({"jobId": row.id, "executionId": execution_id})
+
+
+@router.post("/job/execution/submit/data-quality")
+def submit_quality(body: dict, db: Session = Depends(get_db)):
+    return _submit_inline(body, db, 0)
+
+
+@router.post("/job/execution/submit/data-reconciliation")
+def submit_reconciliation(body: dict, db: Session = Depends(get_db)):
+    return _submit_inline(body, db, 2)
 
 
 # ---------- quality report ----------

@@ -12,6 +12,7 @@ const tabs = [
   { key: "catalog", label: "数据目录" },
   { key: "profile", label: "数据概览" },
   { key: "schema", label: "Schema 变更" },
+  { key: "lineage", label: "血缘" },
 ];
 
 export default function DetailLayout() {
@@ -19,12 +20,15 @@ export default function DetailLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [ds, setDs] = useState<{ name?: string; type?: string } | null>(null);
+  const [failed, setFailed] = useState(false);
   const current = tabs.find((tab) => location.pathname.endsWith("/" + tab.key))?.key || "dashboard";
 
   useEffect(() => {
-    http.get(`/datasource/${id}`).then(setDs).catch(() => setDs(null));
+    setFailed(false);
+    http.get(`/datasource/${id}`).then(setDs).catch(() => setFailed(true));
   }, [id]);
 
+  if (failed) return <Typography.Text type="danger">数据源不存在或加载失败。</Typography.Text>;
   if (!ds) return <Spin />;
   return (
     <div>

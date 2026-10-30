@@ -1,5 +1,3 @@
-> **分支说明：** 当前分支 `fastapi-python` 是 DataVines 的 Python / FastAPI 重实现（后端、前端、文档与 Docker 部署都在本分支根目录）。Java 版本仍在 [`dev`](https://github.com/lvchao377/datavines/tree/dev) 分支，两条线互不覆盖。
-
 # DataVines
 
 数据可观测平台的 Python 实现，对照开源项目 [DataVines](https://github.com/datavane/datavines)。包含数据源（MySQL、Doris）、数据目录、数据概览、质量作业、Cron 调度、Local 执行、质量报告和飞书 SLA。Spark 只保留接口。没有登录。
