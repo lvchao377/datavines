@@ -2,7 +2,7 @@
 
 ## 业务背景
 
-平台要在一台机器上跑起来：元数据库、API、页面。不依赖 Hadoop、ZooKeeper 或登录服务。Docker Compose 把这三件事按固定端口拉起，并在后端启动时自动建表、灌入上游那批系统配置，再创建 Demo 库和两条能跑的质量作业。
+平台要在一台机器上跑起来：元数据库、API、页面。不依赖 Hadoop 或 ZooKeeper。Docker Compose 使用 host 网络，三个进程直接绑定宿主机端口，并在后端启动时自动建表、灌入上游那批系统配置，再创建 Demo 库和两条能跑的质量作业。
 
 ## 用 Docker Compose
 
@@ -12,19 +12,21 @@
 docker compose up --build
 ```
 
-| 服务 | 容器端口 | 宿主机 | 说明 |
-| --- | --- | --- | --- |
-| frontend | 80 | **5680** | 页面。浏览器打开 `http://127.0.0.1:5680` |
-| backend | 5600 | **5600** | API。健康检查 `http://127.0.0.1:5600/api/v1/health` |
-| mysql | 3306 | **33306** | 元数据库 `datavines`，root 密码 `datavines` |
+三个服务都是 `network_mode: host`，没有桥接网和容器 DNS。端口就是宿主机端口：
+
+| 服务 | 宿主机 | 说明 |
+| --- | --- | --- |
+| frontend | **5680** | 页面。浏览器打开 `http://127.0.0.1:5680`。Nginx 把 `/api/` 转到 `127.0.0.1:5600` |
+| backend | **5600** | API。健康检查 `http://127.0.0.1:5600/api/v1/health` |
+| mysql | **33306** | 元数据库 `datavines`，root 密码 `datavines` |
 
 后端环境变量：
 
-- `DATABASE_URL=mysql+pymysql://root:datavines@mysql:3306/datavines?charset=utf8mb4`
+- `DATABASE_URL=mysql+pymysql://root:datavines@127.0.0.1:33306/datavines?charset=utf8mb4`
 - `AUTO_BOOTSTRAP_DEMO=true`：启动后创建 `demo` 库、`orders` / `orders_mirror`、数据源 `demo-mysql`、作业 `demo_email_null_check` 与 `demo_orders_row_count`、飞书 mock SLA。
 - `ENABLE_WORKER=true`：启动命令工人和 Cron 扫描。
 
-MySQL 健康之后后端才启动。后端健康检查有 40 秒启动宽限，并会重试连接以执行 Alembic。三个服务都是 `restart: unless-stopped`。前端要等后端健康后才启动，Nginx 把 `/api/` 反代到 `backend:5600`。数据卷如果是用别的 root 密码初始化的，健康检查会一直失败，需要 `docker compose down -v` 后重建。
+MySQL 健康之后后端才启动。后端健康检查有 40 秒启动宽限，并会重试连接以执行 Alembic。三个服务都是 `restart: unless-stopped`。前端要等后端健康后才启动。Nginx 在宿主机 5680 上把 `/api/` 转到 `127.0.0.1:5600`。数据卷如果是用别的 root 密码初始化的，健康检查会一直失败，需要 `docker compose down -v` 后重建。
 
 停掉并保留数据卷：`docker compose down`。连数据一起删：`docker compose down -v`。
 
@@ -47,7 +49,7 @@ export DATABASE_URL='mysql+pymysql://datavines:datavines@127.0.0.1:3306/datavine
 uvicorn app.main:app --host 0.0.0.0 --port 5600
 ```
 
-首次启动执行 Alembic 版本 `0001_initial`（按 SQLAlchemy 模型建 `dv_*` 表），再执行 `scripts/sql/datavines-mysql.sql` 里的 `dv_config`、`dv_user`、`dv_workspace` 插入。默认用户 `admin`，工作空间名是 `admin's default`。
+首次启动执行 Alembic 版本 `0001_initial`（按 SQLAlchemy 模型建 `dv_*` 表），再执行 `scripts/sql/datavines-mysql.sql` 里的 `dv_config`、`dv_user`、`dv_workspace` 插入，并把 `admin` 与 `user` 的密码收成 bcrypt `123456`。`admin` 的工作空间是 `admin's default`，`user` 的工作空间是 `user's default`。
 
 前端：
 
@@ -70,7 +72,7 @@ pytest -q
 
 ## Demo 路径（不需要第二台数据库）
 
-1. 打开 `http://127.0.0.1:5680`。没有登录页。
+1. 打开 `http://127.0.0.1:5680`，用 `admin` / `123456` 登录。`user` / `123456` 只能看到自己工作空间的数据源。
 2. 若卡片里还没有 `demo-mysql`，点「初始化 Demo」。Compose 已设置自动引导时，这个按钮是幂等的。
 3. 进入数据源 →「规则作业」。
 4. 运行 `demo_email_null_check`：执行成功，结果未通过，实际值 1，错误样本里有空邮箱，告警页能看到飞书 mock 记录。

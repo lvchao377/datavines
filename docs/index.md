@@ -1,6 +1,6 @@
 # DataVines（Python 复刻）文档
 
-这是数据可观测平台 DataVines 的 Python 实现说明。产品范围对齐上游 [datavane/datavines](https://github.com/datavane/datavines)（Apache-2.0）：数据源、数据目录、数据概览、质量作业、调度、执行、质量报告与 SLA。技术栈按交付约定换成 FastAPI、MySQL 元数据库和 React / Ant Design。登录、多租户鉴权和 Spark 实际执行不在本实现里。
+这是数据可观测平台 DataVines 的 Python 实现说明。产品范围对齐上游 [datavane/datavines](https://github.com/datavane/datavines)（Apache-2.0）：数据源、数据目录、数据概览、质量作业、调度、执行、质量报告与 SLA。技术栈按交付约定换成 FastAPI、MySQL 元数据库和 React / Ant Design。登录使用 JWT 与 bcrypt。Spark 实际执行不在本实现里。
 
 阅读顺序建议：
 

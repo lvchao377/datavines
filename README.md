@@ -1,6 +1,6 @@
 # DataVines
 
-数据可观测平台的 Python 实现，对照开源项目 [DataVines](https://github.com/datavane/datavines)。包含数据源（MySQL、Doris）、数据目录、数据概览、质量作业、Cron 调度、Local 执行、质量报告和飞书 SLA。Spark 只保留接口。没有登录。
+数据可观测平台的 Python 实现，对照开源项目 [DataVines](https://github.com/datavane/datavines)。包含数据源（MySQL、Doris）、数据目录、数据概览、质量作业、Cron 调度、Local 执行、质量报告和飞书 SLA。Spark 只保留接口。登录是 JWT，密码用 bcrypt，预置账号 `admin` / `123456` 和 `user` / `123456`。指标目录公开，数据源按工作空间成员隔离。
 
 文档在 [docs/index.md](docs/index.md)。部署细节、端口和 Demo 步骤在 [docs/deploy.md](docs/deploy.md)。模块说明在 [docs/modules](docs/modules)。
 

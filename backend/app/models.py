@@ -39,7 +39,7 @@ def _ts():
 class User(Base):
     __tablename__ = "dv_user"
     __table_args__ = (UniqueConstraint("username", name="user_un"), TABLE_ARGS)
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(255), nullable=False)
     password: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -52,7 +52,7 @@ class User(Base):
 class Workspace(Base):
     __tablename__ = "dv_workspace"
     __table_args__ = (UniqueConstraint("name", name="workspace_un"), TABLE_ARGS)
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     create_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
     create_time: Mapped[datetime] = _ts()
@@ -63,7 +63,7 @@ class Workspace(Base):
 class UserWorkspace(Base):
     __tablename__ = "dv_user_workspace"
     __table_args__ = (TABLE_ARGS,)
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     workspace_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     role_id: Mapped[int | None] = mapped_column(BigInteger)
@@ -104,7 +104,7 @@ class Config(Base):
 class DataSource(Base):
     __tablename__ = "dv_datasource"
     __table_args__ = (UniqueConstraint("name", name="datasource_un"), TABLE_ARGS)
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     uuid: Mapped[str] = mapped_column(String(64), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     category: Mapped[str | None] = mapped_column(String(255), default="database", server_default="database")

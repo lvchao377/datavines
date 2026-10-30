@@ -8,14 +8,14 @@
 
 ## 身份与配置
 
-这些表存在，是为了和上游种子数据对齐。接口不校验登录。
+启动时会保证 `admin` / `123456` 和 `user` / `123456`。密码列是 bcrypt。登录 JWT 不写入 `dv_access_token`。
 
 | 表 | 用途 | 关键列 |
 | --- | --- | --- |
-| dv_user | 默认用户 admin，id=1 | username、password（上游 bcrypt，本系统不校验）、email、admin |
-| dv_workspace | 默认空间 `admin's default`，id=1 | name |
-| dv_user_workspace | 用户与空间 | user_id、workspace_id、role_id |
-| dv_access_token | 令牌表，页面说明鉴权关闭 | token、expire_time |
+| dv_user | `admin` 与 `user`，以及注册用户 | username、password（bcrypt）、email、admin |
+| dv_workspace | `admin's default`、`user's default`，以及注册时的默认空间 | name |
+| dv_user_workspace | 用户与空间的成员关系，数据源列表按它过滤 | user_id、workspace_id、role_id |
+| dv_access_token | 可选的访问令牌，不是登录 JWT | token、expire_time |
 | dv_config | 系统参数，种子来自上游 INSERT | workspace_id、var_key、var_value、is_default |
 | dv_env | 运行环境 JSON | name、env |
 | dv_tenant | 租户名，执行不依赖它 | tenant |

@@ -6,6 +6,8 @@
 
 2026-10-30 验收复跑：**19 passed**，0 failed。命令：`cd backend && python3 -m pytest -q`。前端 `npx tsc --noEmit` 通过。
 
+同日补上登录后，在没有元数据库的环境里再跑了一次：`19 passed`，`3 skipped`（`test_flow.py` 与 `test_catalog_profile_doris.py` 的 MySQL 集成）。新增 `tests/test_auth.py`：bcrypt 与 JWT、`GET /metric/list` 无令牌返回 28 条、未登录访问数据源分页为 401，`user` 看不到 `admin` 工作空间的数据源。前端 `npx tsc --noEmit` 再次通过。
+
 | 测试 | 结果 | 内容 |
 | --- | --- | --- |
 | `tests/test_sqlgen.py` | 通过 | 28 个插件名齐全；空值、唯一、重复、Distinct、枚举、正则、长度、值域、及时性、直方图、自定义 SQL、跨表准确性、两表值比对的 SQL 片段；期望值 SQL 与上游 MetricScript 一致；非法标识符和分号被拒绝 |

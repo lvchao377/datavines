@@ -1,6 +1,6 @@
 # API 接口
 
-前缀 `/api/v1`。除健康检查和静态文档外，成功响应都是：
+前缀 `/api/v1`。除健康检查、指标目录和静态文档外，业务接口需要 JWT。成功响应都是：
 
 ```json
 {"code": 200, "msg": "Success", "data": {}}
@@ -19,10 +19,13 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/health` | `data.status=up`，并带 `engine.local=true`、`engine.spark=false` |
-| POST | `/login` | 固定 `data.token=anonymous`、`username=admin`。不校验密码 |
-| GET | `/user/info` | 默认用户 |
-| GET | `/workspace/list` | 工作空间 |
-| GET | `/token/page` | 令牌或一条「鉴权已关闭」说明 |
+| POST | `/login` | 体：`username`、`password`。成功时顶层和 `data.token` 都是 JWT |
+| POST | `/register` | 体：`username`、`email`、`password`。创建用户和默认工作空间 |
+| GET | `/user/info` | 当前登录用户，需 JWT |
+| GET | `/user/list` | 当前工作空间的成员。查询 `workspaceId`，需 JWT |
+| GET | `/workspace/list` | 只返回当前用户加入的工作空间 |
+| GET | `/token/page` | 当前工作空间的访问令牌；登录 JWT 不写这张表 |
+| GET | `/metric/*` | 指标目录公开，不需要 JWT。一共 28 条规则 |
 | GET | `/config/page` | 查询 `searchVal`、`pageNumber`、`pageSize` |
 | POST/PUT | `/config` | `varKey`、`varValue`、`workspaceId` |
 | DELETE | `/config/{id}` | |
@@ -53,7 +56,7 @@
 | GET | `/datasource/type/list` | `supported`、`defaultPort` |
 | GET | `/datasource/config/{type}` | 表单字段 |
 | POST | `/datasource/test` | `type`、`param{host,port,database,user,password}` |
-| GET | `/datasource/page` | `searchVal`、`pageNumber`、`pageSize`。密码掩码 |
+| GET | `/datasource/page` | `workspaceId`、`searchVal`、`pageNumber`、`pageSize`。只返回成员可见的数据源，密码掩码 |
 | GET | `/datasource/{id}` | 含明文密码，供编辑 |
 | POST | `/datasource` | `name`、`type`、`param` |
 | PUT | `/datasource` | `id` 加要改的字段 |

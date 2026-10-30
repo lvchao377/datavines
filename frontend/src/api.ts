@@ -3,6 +3,12 @@ import { message } from "antd";
 
 const http = axios.create({ baseURL: "/api/v1", timeout: 120000 });
 
+http.interceptors.request.use((config) => {
+  const token = localStorage.getItem("dv_token");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 http.interceptors.response.use(
   (response) => {
     const body = response.data;
@@ -13,7 +19,12 @@ http.interceptors.response.use(
     return body?.data;
   },
   (error) => {
+    const status = error?.response?.status;
     const msg = error?.response?.data?.msg || error.message || "网络错误";
+    if (status === 401 && !window.location.pathname.startsWith("/login") && !window.location.pathname.startsWith("/register")) {
+      localStorage.removeItem("dv_token");
+      window.location.assign("/login");
+    }
     message.error(msg);
     return Promise.reject(error);
   },

@@ -22,9 +22,9 @@ Spark 在 `backend/app/engine/spark.py`。`SparkEngine.execute()` 固定抛出 `
 
 `docker-compose.yml` 启动三个服务：MySQL 8、后端、前端。没有 ZooKeeper，没有多副本抢锁之外的协调。调度是进程内的 cron 线程加 `dv_command` / `dv_common_task_command` 队列，单节点启动时会把上次残留的「运行中」实例标成失败。端口与步骤见 [部署和启动](deploy.md)。
 
-## 5. 不做登录 / 用户权限
+## 5. 登录与工作空间隔离
 
-没有登录页。`/login` 与 `/register` 重定向到 `/main/home`。`POST /api/v1/login` 固定返回用户 admin 和令牌 `anonymous`，服务端不校验它。所有写接口使用默认用户 id=1、工作空间 id=1（库里的 `admin's default`）。令牌页明确写出鉴权已关闭。
+`POST /api/v1/login` 校验 bcrypt 密码并签发 JWT，请求头用 `Authorization: Bearer <token>`。`POST /api/v1/register` 创建用户和「用户名's default」工作空间。启动时保证两个账号：`admin` / `123456`（管理员，空间 `admin's default`）和 `user` / `123456`（空间 `user's default`）。`AuthMiddleware` 挡住 `/api/v1` 下的业务接口。`GET /metric/*` 仍公开，目录是 28 条规则。数据源分页、详情和写入只允许当前用户所属的工作空间。前端有登录、注册、用户页，顶栏可以切换工作空间并退出。
 
 ## 6. 界面与接口与原版 DataVines 对应
 

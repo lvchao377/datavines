@@ -10,10 +10,11 @@ import json
 import uuid
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.auth import create_token, hash_password, member_workspace_ids, verify_password
 from app.catalog import (
     add_lineage,
     bind_job,
@@ -63,6 +64,7 @@ from app.models import (
     SlaSender,
     Tenant,
     User,
+    UserWorkspace,
     Workspace,
 )
 from app.scheduler import cron_due, enqueue_common, enqueue_job, enqueue_stop, normalize_cron, upcoming
@@ -94,6 +96,35 @@ def _slice(query, page, size):
     return total, rows
 
 
+def _actor(request: Request, db: Session) -> User | None:
+    uid = getattr(request.state, "user_id", None)
+    if uid is None:
+        return None
+    return db.get(User, int(uid))
+
+
+def _user_view(db: Session, user: User) -> dict:
+    links = db.query(UserWorkspace).filter(UserWorkspace.user_id == user.id).all()
+    spaces = []
+    for link in links:
+        workspace = db.get(Workspace, link.workspace_id)
+        if workspace is not None:
+            spaces.append({"id": workspace.id, "name": workspace.name})
+    return {
+        "id": user.id,
+        "userId": user.id,
+        "username": user.username,
+        "email": user.email,
+        "admin": bool(user.admin),
+        "workspaceId": spaces[0]["id"] if spaces else None,
+        "workspaces": spaces,
+    }
+
+
+def _owns_workspace(db: Session, user: User, workspace_id: int) -> bool:
+    return int(workspace_id) in member_workspace_ids(db, user.id)
+
+
 # ---------- health / identity ----------
 
 @router.get("/health")
@@ -102,20 +133,88 @@ def health():
 
 
 @router.post("/login")
-def login():
-    return ok({"token": "anonymous", "username": "admin", "userId": 1, "workspaceId": 1})
+def login(body: dict, db: Session = Depends(get_db)):
+    username = str(_pick(body, "username", default="") or "").strip()
+    password = str(_pick(body, "password", default="") or "")
+    user = db.query(User).filter(User.username == username).one_or_none()
+    if user is None or not verify_password(password, user.password):
+        return fail("用户名或密码错误", 400)
+    token = create_token(user)
+    data = _user_view(db, user)
+    data["token"] = token
+    return {"code": 200, "msg": "Success", "token": token, "data": data}
+
+
+@router.post("/register")
+def register(body: dict, db: Session = Depends(get_db)):
+    username = str(_pick(body, "username", default="") or "").strip()
+    password = str(_pick(body, "password", default="") or "")
+    email = str(_pick(body, "email", default="") or "").strip()
+    if not username or not password or not email:
+        return fail("用户名、邮箱和密码不能为空")
+    if len(password) < 6:
+        return fail("密码至少 6 位")
+    if db.query(User).filter(User.username == username).first():
+        return fail("用户名已注册")
+    user = User(username=username, password=hash_password(password), email=email, phone=_pick(body, "phone"), admin=0)
+    db.add(user)
+    db.flush()
+    workspace_name = f"{username}'s default"
+    if db.query(Workspace).filter(Workspace.name == workspace_name).first():
+        workspace_name = f"{username}'s default {user.id}"
+    workspace = Workspace(name=workspace_name, create_by=user.id, update_by=user.id)
+    db.add(workspace)
+    db.flush()
+    db.add(
+        UserWorkspace(
+            user_id=user.id,
+            workspace_id=workspace.id,
+            role_id=1,
+            create_by=user.id,
+            update_by=user.id,
+        )
+    )
+    db.commit()
+    db.refresh(user)
+    return ok(_user_view(db, user))
 
 
 @router.get("/user/info")
-def user_info(db: Session = Depends(get_db)):
-    user = db.get(User, 1)
-    return ok({"id": 1, "username": user.username if user else "admin", "admin": True, "auth": "disabled"})
+def user_info(request: Request, db: Session = Depends(get_db)):
+    user = _actor(request, db)
+    if user is None:
+        return fail("未登录", 401)
+    return ok(_user_view(db, user))
+
+
+@router.get("/user/list")
+def user_list(request: Request, workspaceId: int | None = None, db: Session = Depends(get_db)):
+    user = _actor(request, db)
+    if user is None:
+        return fail("未登录", 401)
+    allowed = member_workspace_ids(db, user.id)
+    if workspaceId is not None and int(workspaceId) not in allowed:
+        return fail("无权查看该工作空间的用户", 403)
+    if user.admin and workspaceId is None:
+        rows = db.query(User).order_by(User.id).all()
+    else:
+        target = int(workspaceId) if workspaceId is not None else (min(allowed) if allowed else None)
+        if target is None:
+            return ok([])
+        member_ids = [
+            row.user_id
+            for row in db.query(UserWorkspace).filter(UserWorkspace.workspace_id == target).all()
+        ]
+        rows = db.query(User).filter(User.id.in_(member_ids or [-1])).order_by(User.id).all()
+    return ok([_user_view(db, row) for row in rows])
 
 
 @router.get("/workspace/list")
-def workspace_list(db: Session = Depends(get_db)):
-    rows = db.query(Workspace).all()
-    return ok([dump_row(row) for row in rows])
+def workspace_list(request: Request, db: Session = Depends(get_db)):
+    user = _actor(request, db)
+    if user is None:
+        return fail("未登录", 401)
+    return ok(_user_view(db, user)["workspaces"])
 
 
 # ---------- metrics ----------
@@ -232,11 +331,37 @@ def ds_test(body: dict):
     return ok(True, "Connection test succeeded")
 
 
+def _deny_datasource(request: Request, db: Session, row: DataSource | None):
+    user = _actor(request, db)
+    if user is None:
+        return fail("未登录", 401)
+    if row is None:
+        return fail("数据源不存在", 404)
+    if not _owns_workspace(db, user, row.workspace_id):
+        return fail("无权访问该数据源", 403)
+    return None
+
+
 @router.get("/datasource/page")
-def ds_page(searchVal: str | None = None, pageNumber: int = 1, pageSize: int = 10, workspaceId: int | None = None, db: Session = Depends(get_db)):
+def ds_page(
+    request: Request,
+    searchVal: str | None = None,
+    pageNumber: int = 1,
+    pageSize: int = 10,
+    workspaceId: int | None = None,
+    db: Session = Depends(get_db),
+):
+    user = _actor(request, db)
+    if user is None:
+        return fail("未登录", 401)
+    allowed = member_workspace_ids(db, user.id)
     query = db.query(DataSource)
-    if workspaceId:
-        query = query.filter(DataSource.workspace_id == workspaceId)
+    if workspaceId is not None:
+        if int(workspaceId) not in allowed:
+            return fail("无权访问该工作空间的数据源", 403)
+        query = query.filter(DataSource.workspace_id == int(workspaceId))
+    else:
+        query = query.filter(DataSource.workspace_id.in_(allowed or [-1]))
     if searchVal:
         query = query.filter(DataSource.name.like(f"%{searchVal}%"))
     page, size = _page_args({}, pageNumber, pageSize)
@@ -245,13 +370,21 @@ def ds_page(searchVal: str | None = None, pageNumber: int = 1, pageSize: int = 1
 
 
 @router.get("/datasource/list/{workspace_id}/{dtype}")
-def ds_list(workspace_id: int, dtype: str, db: Session = Depends(get_db)):
+def ds_list(workspace_id: int, dtype: str, request: Request, db: Session = Depends(get_db)):
+    user = _actor(request, db)
+    if user is None:
+        return fail("未登录", 401)
+    if not _owns_workspace(db, user, workspace_id):
+        return fail("无权访问该工作空间的数据源", 403)
     rows = db.query(DataSource).filter(DataSource.workspace_id == workspace_id, DataSource.type == dtype).all()
     return ok([dump_row(row, mask_password=True) for row in rows])
 
 
 @router.post("/datasource")
-def ds_create(body: dict, db: Session = Depends(get_db)):
+def ds_create(body: dict, request: Request, db: Session = Depends(get_db)):
+    user = _actor(request, db)
+    if user is None:
+        return fail("未登录", 401)
     try:
         dtype = str(_pick(body, "type", default="mysql")).lower()
         param = validate_param(_pick(body, "param", default={}), dtype)
@@ -260,6 +393,11 @@ def ds_create(body: dict, db: Session = Depends(get_db)):
     name = _pick(body, "name")
     if not name:
         return fail("名称不能为空")
+    allowed = member_workspace_ids(db, user.id)
+    workspace_id = _pick(body, "workspaceId", "workspace_id")
+    workspace_id = int(workspace_id) if workspace_id else (min(allowed) if allowed else None)
+    if workspace_id is None or workspace_id not in allowed:
+        return fail("无权在该工作空间创建数据源", 403)
     if db.query(DataSource).filter(DataSource.name == name).first():
         return fail("数据源名称已存在")
     row = DataSource(
@@ -268,9 +406,9 @@ def ds_create(body: dict, db: Session = Depends(get_db)):
         category=_pick(body, "category", default="database"),
         type=dtype,
         param=json.dumps(param),
-        workspace_id=_pick(body, "workspaceId", "workspace_id", default=settings.default_workspace_id),
-        create_by=settings.default_user_id,
-        update_by=settings.default_user_id,
+        workspace_id=workspace_id,
+        create_by=user.id,
+        update_by=user.id,
     )
     db.add(row)
     db.commit()
@@ -279,10 +417,11 @@ def ds_create(body: dict, db: Session = Depends(get_db)):
 
 
 @router.put("/datasource")
-def ds_update(body: dict, db: Session = Depends(get_db)):
+def ds_update(body: dict, request: Request, db: Session = Depends(get_db)):
     row = db.get(DataSource, _pick(body, "id"))
-    if row is None:
-        return fail("数据源不存在", 404)
+    denied = _deny_datasource(request, db, row)
+    if denied:
+        return denied
     if _pick(body, "name"):
         row.name = _pick(body, "name")
     if _pick(body, "type"):
@@ -293,43 +432,49 @@ def ds_update(body: dict, db: Session = Depends(get_db)):
         except ValueError as exc:
             return fail(str(exc))
         row.param = json.dumps(param)
-    row.update_by = settings.default_user_id
+    row.update_by = _actor(request, db).id
     db.commit()
     return ok(dump_row(row, mask_password=True))
 
 
 @router.delete("/datasource/{datasource_id}")
-def ds_delete(datasource_id: int, db: Session = Depends(get_db)):
+def ds_delete(datasource_id: int, request: Request, db: Session = Depends(get_db)):
     row = db.get(DataSource, datasource_id)
-    if row is None:
-        return fail("数据源不存在", 404)
+    denied = _deny_datasource(request, db, row)
+    if denied:
+        return denied
     db.delete(row)
     db.commit()
     return ok(True)
 
 
 @router.get("/datasource/{datasource_id}")
-def ds_get(datasource_id: int, db: Session = Depends(get_db)):
+def ds_get(datasource_id: int, request: Request, db: Session = Depends(get_db)):
     row = db.get(DataSource, datasource_id)
-    if row is None:
-        return fail("数据源不存在", 404)
+    denied = _deny_datasource(request, db, row)
+    if denied:
+        return denied
     return ok(dump_row(row))
 
 
-def _open(db: Session, datasource_id: int):
+def _open_or_fail(request: Request, db: Session, datasource_id: int):
     row = db.get(DataSource, datasource_id)
-    if row is None:
-        raise ValueError("数据源不存在")
+    denied = _deny_datasource(request, db, row)
+    if denied is not None:
+        return None, denied
     from app.connectors import create_source_engine
 
     param = validate_param(parse_json(row.param, {}), row.type)
-    return row, create_source_engine(param), param
+    return (row, create_source_engine(param), param), None
 
 
 @router.get("/datasource/{datasource_id}/databases")
-def ds_databases(datasource_id: int, db: Session = Depends(get_db)):
+def ds_databases(datasource_id: int, request: Request, db: Session = Depends(get_db)):
+    opened, denied = _open_or_fail(request, db, datasource_id)
+    if denied:
+        return denied
+    _, eng, _ = opened
     try:
-        _, eng, _ = _open(db, datasource_id)
         with eng.connect() as conn:
             data = list_databases(conn)
         eng.dispose()
@@ -339,9 +484,12 @@ def ds_databases(datasource_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/datasource/{datasource_id}/{database}/tables")
-def ds_tables(datasource_id: int, database: str, db: Session = Depends(get_db)):
+def ds_tables(datasource_id: int, database: str, request: Request, db: Session = Depends(get_db)):
+    opened, denied = _open_or_fail(request, db, datasource_id)
+    if denied:
+        return denied
+    _, eng, _ = opened
     try:
-        _, eng, _ = _open(db, datasource_id)
         with eng.connect() as conn:
             data = list_tables(conn, database)
         eng.dispose()
@@ -351,9 +499,12 @@ def ds_tables(datasource_id: int, database: str, db: Session = Depends(get_db)):
 
 
 @router.get("/datasource/{datasource_id}/{database}/{table}/columns")
-def ds_columns(datasource_id: int, database: str, table: str, db: Session = Depends(get_db)):
+def ds_columns(datasource_id: int, database: str, table: str, request: Request, db: Session = Depends(get_db)):
+    opened, denied = _open_or_fail(request, db, datasource_id)
+    if denied:
+        return denied
+    _, eng, _ = opened
     try:
-        _, eng, _ = _open(db, datasource_id)
         with eng.connect() as conn:
             data = list_columns(conn, database, table)
         eng.dispose()
@@ -363,9 +514,12 @@ def ds_columns(datasource_id: int, database: str, table: str, db: Session = Depe
 
 
 @router.get("/datasource/{datasource_id}/{database}/{table}/preview")
-def ds_preview(datasource_id: int, database: str, table: str, limit: int = 20, db: Session = Depends(get_db)):
+def ds_preview(datasource_id: int, database: str, table: str, request: Request, limit: int = 20, db: Session = Depends(get_db)):
+    opened, denied = _open_or_fail(request, db, datasource_id)
+    if denied:
+        return denied
+    _, eng, _ = opened
     try:
-        _, eng, _ = _open(db, datasource_id)
         with eng.connect() as conn:
             data = preview(conn, database, table, limit)
         eng.dispose()
@@ -375,9 +529,15 @@ def ds_preview(datasource_id: int, database: str, table: str, limit: int = 20, d
 
 
 @router.post("/datasource/execute")
-def ds_execute(body: dict, db: Session = Depends(get_db)):
+def ds_execute(body: dict, request: Request, db: Session = Depends(get_db)):
+    raw_id = _pick(body, "datasourceId", "datasource_id")
+    if raw_id is None:
+        return fail("缺少数据源")
+    opened, denied = _open_or_fail(request, db, int(raw_id))
+    if denied:
+        return denied
+    _, eng, _ = opened
     try:
-        _, eng, _ = _open(db, int(_pick(body, "datasourceId", "datasource_id")))
         with eng.connect() as conn:
             data = execute_select(conn, _pick(body, "script", "sql", default=""), _pick(body, "limit", default=100))
         eng.dispose()
@@ -1554,15 +1714,26 @@ def tenant_create(body: dict, db: Session = Depends(get_db)):
 
 
 @router.get("/token/page")
-def token_page(db: Session = Depends(get_db)):
-    rows = db.query(AccessToken).all()
-    return ok([dump_row(row) for row in rows] or [{"token": "anonymous", "note": "登录与鉴权已关闭，接口匿名可访问"}])
+def token_page(request: Request, db: Session = Depends(get_db)):
+    user = _actor(request, db)
+    if user is None:
+        return fail("未登录", 401)
+    allowed = member_workspace_ids(db, user.id)
+    rows = db.query(AccessToken).filter(AccessToken.workspace_id.in_(allowed or [-1])).all()
+    return ok([dump_row(row) for row in rows] or [{"token": "JWT", "note": "登录令牌由 /login 签发，请求头 Authorization。指标目录无需登录。"}])
 
 
 @router.post("/demo/bootstrap")
-def demo_bootstrap():
+def demo_bootstrap(request: Request, db: Session = Depends(get_db)):
+    user = _actor(request, db)
+    if user is None:
+        return fail("未登录", 401)
+    allowed = member_workspace_ids(db, user.id)
+    if not allowed:
+        return fail("当前用户没有工作空间", 403)
+    workspace_id = settings.default_workspace_id if settings.default_workspace_id in allowed else min(allowed)
     try:
-        return ok(bootstrap_demo())
+        return ok(bootstrap_demo(workspace_id, user.id))
     except Exception as exc:
         return fail(str(exc))
 

@@ -3,6 +3,7 @@ import { Button, Card, Empty, Form, Input, InputNumber, Modal, Popconfirm, Selec
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import http from "../api";
+import { workspaceId } from "../session";
 
 type DataSource = {
   id: number;
@@ -22,7 +23,8 @@ export default function HomePage() {
   const load = async () => {
     setLoading(true);
     try {
-      const page = await http.get("/datasource/page", { params: { pageNumber: 1, pageSize: 100 } });
+      const current = workspaceId();
+      const page = await http.get("/datasource/page", { params: { pageNumber: 1, pageSize: 100, workspaceId: current || undefined } });
       setRows(page.records || []);
     } finally {
       setLoading(false);
@@ -32,6 +34,9 @@ export default function HomePage() {
   useEffect(() => {
     load();
     http.get("/datasource/type/list").then(setTypes);
+    const onSwitch = () => load();
+    window.addEventListener("dv-workspace", onSwitch);
+    return () => window.removeEventListener("dv-workspace", onSwitch);
   }, []);
 
   const create = async () => {
@@ -39,6 +44,7 @@ export default function HomePage() {
     await http.post("/datasource", {
       name: values.name,
       type: values.type,
+      workspaceId: workspaceId() ? Number(workspaceId()) : undefined,
       param: { host: values.host, port: values.port, database: values.database, user: values.user, password: values.password || "" },
     });
     message.success("数据源已创建");

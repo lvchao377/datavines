@@ -1,16 +1,18 @@
+# Host network: MySQL, API, and the page bind the host ports directly.
+# There is no bridge DNS name. The backend talks to 127.0.0.1:33306,
+# and Nginx proxies /api/ to 127.0.0.1:5600.
 services:
   mysql:
     image: mysql:8.0
+    network_mode: host
     environment:
       MYSQL_ROOT_PASSWORD: datavines
       MYSQL_DATABASE: datavines
-    command: ["mysqld", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
-    ports:
-      - "33306:3306"
+    command: ["mysqld", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--port=33306", "--bind-address=0.0.0.0"]
     volumes:
       - dv-mysql:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-pdatavines", "--silent"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-P", "33306", "-uroot", "-pdatavines", "--silent"]
       interval: 5s
       timeout: 5s
       retries: 30
@@ -21,12 +23,11 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+    network_mode: host
     environment:
-      DATABASE_URL: mysql+pymysql://root:datavines@mysql:3306/datavines?charset=utf8mb4
+      DATABASE_URL: mysql+pymysql://root:datavines@127.0.0.1:33306/datavines?charset=utf8mb4
       AUTO_BOOTSTRAP_DEMO: "true"
       ENABLE_WORKER: "true"
-    ports:
-      - "5600:5600"
     depends_on:
       mysql:
         condition: service_healthy
@@ -42,8 +43,7 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-    ports:
-      - "5680:80"
+    network_mode: host
     depends_on:
       backend:
         condition: service_healthy

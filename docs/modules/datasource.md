@@ -14,7 +14,7 @@ Doris 在这里按 MySQL 协议访问 FE 的查询端口（常见是 9030）。�
 - 在数据源上执行一条只读 SQL（SELECT / WITH / SHOW / DESC），自动补 `LIMIT`。
 - 页面提供「初始化 Demo」：在元数据库同一台 MySQL 上创建 `demo` 库、样例表、名为 `demo-mysql` 的数据源、两条质量作业和一条飞书 SLA。
 
-连接参数存在 `dv_datasource.param` 文本列，内容是 JSON。列表接口把密码打成 `******`，按 id 查询时返回原文，方便编辑。本系统没有鉴权，这个取舍写在令牌页上。
+连接参数存在 `dv_datasource.param` 文本列，内容是 JSON。列表接口把密码打成 `******`，按 id 查询时返回原文，方便编辑。列表和详情都要求登录，并且数据源的 `workspace_id` 必须在当前用户的 `dv_user_workspace` 里。
 
 ## 关键业务规则
 

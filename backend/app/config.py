@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     default_workspace_id: int = 1
     worker_interval_seconds: int = 2
     schedule_interval_seconds: int = 20
+    jwt_secret: str = "datavines-fastapi-jwt-secret"
+    jwt_expire_hours: int = 168
 
 
 settings = Settings()

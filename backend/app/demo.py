@@ -140,13 +140,17 @@ def apply_schema_change() -> dict:
         return refresh_datasource(session, ds.id, "demo")
 
 
-def bootstrap_demo() -> dict:
+def bootstrap_demo(workspace_id: int | None = None, user_id: int | None = None) -> dict:
     from app.catalog import bind_job, refresh_datasource
 
     meta = ensure_demo_tables()
     param = {**meta, "database": "demo"}
+    wid = int(workspace_id or settings.default_workspace_id)
+    uid = int(user_id or settings.default_user_id)
     with SessionLocal() as session:
         ds = session.query(DataSource).filter(DataSource.name == "demo-mysql").one_or_none()
+        if ds is not None and int(ds.workspace_id) != wid:
+            raise ValueError("Demo 数据源属于其他工作空间")
         if ds is None:
             ds = DataSource(
                 uuid=uuid.uuid4().hex,
@@ -154,9 +158,9 @@ def bootstrap_demo() -> dict:
                 category="database",
                 type="mysql",
                 param=json.dumps(param),
-                workspace_id=settings.default_workspace_id,
-                create_by=settings.default_user_id,
-                update_by=settings.default_user_id,
+                workspace_id=wid,
+                create_by=uid,
+                update_by=uid,
             )
             session.add(ds)
             session.flush()
@@ -204,8 +208,8 @@ def bootstrap_demo() -> dict:
                     retry_interval=1,
                     timeout=120,
                     timeout_strategy=0,
-                    create_by=settings.default_user_id,
-                    update_by=settings.default_user_id,
+                    create_by=uid,
+                    update_by=uid,
                 )
                 session.add(job)
                 session.flush()
@@ -217,21 +221,21 @@ def bootstrap_demo() -> dict:
             sender = SlaSender(
                 type="feishu",
                 name="demo-feishu-mock",
-                workspace_id=settings.default_workspace_id,
+                workspace_id=wid,
                 config=json.dumps({"webhook": webhook}),
-                create_by=settings.default_user_id,
-                update_by=settings.default_user_id,
+                create_by=uid,
+                update_by=uid,
             )
             session.add(sender)
             session.flush()
         sla = session.query(Sla).filter(Sla.name == "demo-null-sla").one_or_none()
         if sla is None:
             sla = Sla(
-                workspace_id=settings.default_workspace_id,
+                workspace_id=wid,
                 name="demo-null-sla",
                 description="邮箱空值检查失败时通知飞书（默认打到内置 mock）",
-                create_by=settings.default_user_id,
-                update_by=settings.default_user_id,
+                create_by=uid,
+                update_by=uid,
             )
             session.add(sla)
             session.flush()
@@ -243,11 +247,11 @@ def bootstrap_demo() -> dict:
         if link is None:
             session.add(
                 SlaJob(
-                    workspace_id=settings.default_workspace_id,
+                    workspace_id=wid,
                     sla_id=sla.id,
                     job_id=job_ids["demo_email_null_check"],
-                    create_by=settings.default_user_id,
-                    update_by=settings.default_user_id,
+                    create_by=uid,
+                    update_by=uid,
                 )
             )
         note = session.query(SlaNotification).filter(SlaNotification.sla_id == sla.id).one_or_none()
@@ -255,12 +259,12 @@ def bootstrap_demo() -> dict:
             session.add(
                 SlaNotification(
                     type="feishu",
-                    workspace_id=settings.default_workspace_id,
+                    workspace_id=wid,
                     sla_id=sla.id,
                     sender_id=sender.id,
                     config=json.dumps({"atAll": False}),
-                    create_by=settings.default_user_id,
-                    update_by=settings.default_user_id,
+                    create_by=uid,
+                    update_by=uid,
                 )
             )
         session.commit()

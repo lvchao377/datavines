@@ -1,8 +1,8 @@
 # 前端页面
 
-界面用 React、TypeScript 和 Ant Design，结构对齐 datavines-ui 的主框架：左侧深色菜单、右侧白顶栏、内容区。不提供登录、注册、忘记密码页面；访问 `/`、`/login`、`/register` 都会进 `/main/home`。顶栏固定显示工作空间 `admin's default` 和用户 `admin`，并用健康检查给服务状态打标签。
+界面用 React、TypeScript 和 Ant Design，结构对齐 datavines-ui 的主框架：左侧深色菜单、右侧白顶栏、内容区。`/login` 与 `/register` 是独立页面。进入 `/main` 前要有本地 JWT。顶栏是工作空间下拉、当前用户和退出，并用健康检查给服务状态打标签。
 
-开发服务器端口 5680。生产镜像里 Nginx 监听 80，Compose 映射到宿主机 5680。
+开发服务器端口 5680。生产镜像里 Nginx 同样监听 5680，Compose 使用 host 网络，页面直接开在这个端口。
 
 ## 路由
 
@@ -22,7 +22,10 @@
 | `/main/label` | 标签管理 | 分类和标签 |
 | `/main/config` | 参数配置 | `dv_config` 键值 |
 | `/main/env` | 运行环境 | 记录 Spark 等环境变量，不用于真正提交 Spark |
-| `/main/tokenManager` | 令牌 | 说明鉴权已关闭 |
+| `/login` | 登录 | 用户名和密码。预置 admin / 123456、user / 123456 |
+| `/register` | 注册 | 用户名、邮箱、密码，成功后去登录 |
+| `/main/users` | 用户 | 当前工作空间的成员 |
+| `/main/tokenManager` | 令牌 | 说明登录 JWT 与指标目录公开 |
 
 数据源详情顶上还有一条横向菜单，对应上游 detail 路由里的 dashboard、editor、jobs、jobExecutionLogs，并补上目录、概览和 Schema，避免从概览去看表时 404。
 
@@ -36,7 +39,7 @@
 
 ## 和上游 UI 的差异
 
-- 没有工作空间切换、用户管理、注册。
+- 顶栏可以切换工作空间并退出。用户页只显示当前空间的成员。
 - 血缘没有单独的图画布，接口可用，见目录文档。
 - 自定义 SQL 用多行输入框，没有内嵌 Monaco。
 - 质量概览把饼图和趋势放在同一页，而不是再套一层仅有 ECharts 的子路由。
